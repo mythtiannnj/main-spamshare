@@ -40,7 +40,7 @@
         .logo-icon { font-size: 48px; background: linear-gradient(135deg, #ffb3ff, #9effff); -webkit-background-clip: text; background-clip: text; color: transparent; }
         h1 { font-size: 44px; font-weight: 800; background: linear-gradient(120deg, #FFFFFF, #f0b3ff, #b6eaff); -webkit-background-clip: text; background-clip: text; color: transparent; }
         
-        /* Stats cards - THESE ARE THE TOTAL SHARE, ACTIVE, COMPLETED - GREEN COUNTERS */
+        /* Stats cards - TOTAL SHARE, ACTIVE, COMPLETED - GREEN COUNTERS */
         .session-stats-row {
             display: flex;
             gap: 24px;
@@ -62,7 +62,7 @@
             transform: translateY(-3px);
             border-color: rgba(255, 150, 255, 0.6);
         }
-        /* UPDATED: main counter numbers (h3) are bright GREEN with neon effect */
+        /* Main counter numbers - BRIGHT GREEN with neon effect */
         .stat-pill h3 { 
             font-size: 42px; 
             font-weight: 800; 
@@ -75,41 +75,6 @@
         }
         .stat-pill p { color: #bcaeff; font-weight: 500; margin-top: 8px; letter-spacing: 1px; }
         .stat-icon-small { font-size: 32px; margin-bottom: 8px; color: #c8aaff; }
-        
-        /* New style for the dynamic counting display (share progress) inside stats row */
-        .live-counting-display {
-            background: rgba(0, 0, 0, 0.5);
-            border-radius: 60px;
-            margin-top: 12px;
-            padding: 6px 16px;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            font-weight: 700;
-            font-size: 18px;
-            backdrop-filter: blur(4px);
-            border: 1px solid rgba(0, 255, 150, 0.4);
-            box-shadow: 0 0 8px rgba(0,255,120,0.2);
-        }
-        .counting-label {
-            color: #b0c4ff;
-            letter-spacing: 1px;
-            font-size: 13px;
-        }
-        .counting-value {
-            background: linear-gradient(135deg, #c0ffc0, #88ffaa);
-            -webkit-background-clip: text;
-            background-clip: text;
-            color: transparent;
-            font-weight: 800;
-            font-size: 24px;
-            font-family: monospace;
-            text-shadow: 0 0 6px #00ffaa80;
-        }
-        .counting-target {
-            color: #c0ffee;
-            font-weight: 600;
-        }
         
         .logs-container { padding: 24px; margin-top: 10px; }
         .session-card {
@@ -143,16 +108,36 @@
         .status-completed { background: #1f7a5530; color: #7affb9; border: 1px solid #32ff9e; }
         .status-warning { background: #8f6a2a30; color: #ffd966; border: 1px solid #ffaa33; }
         .stat-badge { background: rgba(0,0,0,0.5); padding: 5px 12px; border-radius: 30px; font-size: 13px; }
+        
+        /* ENHANCED: Session counter (share progress) - now GREEN and visible like 10/100 */
         .process-counter-fixed {
             font-weight: 800;
-            background: #00000066;
-            padding: 2px 10px;
+            background: rgba(0, 30, 0, 0.6);
+            padding: 6px 14px;
             border-radius: 40px;
-            display: inline-block;
-            color: #bbffcc;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border: 1px solid rgba(0, 255, 150, 0.5);
+            box-shadow: 0 0 6px rgba(0,255,120,0.3);
+            backdrop-filter: blur(4px);
         }
-        /* Green version for session counters */
-        .process-counter-fixed i { color: #88ffaa; }
+        .process-counter-fixed i {
+            color: #66ffaa;
+            font-size: 12px;
+        }
+        .counter-green {
+            background: linear-gradient(135deg, #b0ffb0, #44ffaa);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            font-weight: 800;
+            font-size: 15px;
+            font-family: monospace;
+            letter-spacing: 0.5px;
+            text-shadow: 0 0 4px #00ffaa80;
+        }
+        
         .log-details {
             padding: 16px 24px;
             background: rgba(0,0,0,0.3);
@@ -202,6 +187,14 @@
         .stat-pill h3 {
             animation: gentleGlow 2s infinite alternate;
         }
+        /* small pulse for session counters */
+        @keyframes countPulse {
+            0% { text-shadow: 0 0 0px #00ffaa; }
+            100% { text-shadow: 0 0 6px #00ffaa; }
+        }
+        .counter-green {
+            transition: all 0.1s ease;
+        }
         @media (max-width: 700px) { .session-header { flex-direction: column; align-items: flex-start; } .stat-pill h3 { font-size: 28px; } }
     </style>
 </head>
@@ -222,18 +215,12 @@
         </div>
     </div>
 
-    <!-- STATS CARDS: Total Shares, Active Sessions, Completed - plus dynamic counting progress (X/Y) -->
+    <!-- STATS CARDS: Total Shares, Active Sessions, Completed (all green counters) -->
     <div class="session-stats-row">
         <div class="stat-pill glass-holo">
             <div class="stat-icon-small"><i class="fas fa-chart-line"></i></div>
             <h3 id="logs-total-shares">0</h3>
             <p>TOTAL SHARES</p>
-            <!-- Live counting for aggregated progress: shows (current_total_shares / sum_targets) -->
-            <div class="live-counting-display">
-                <span class="counting-label"><i class="fas fa-chart-simple"></i> GLOBAL PROGRESS</span>
-                <span class="counting-value" id="globalCountingCurrent">0</span>
-                <span class="counting-target">/ <span id="globalCountingTarget">0</span></span>
-            </div>
         </div>
         <div class="stat-pill glass-holo">
             <div class="stat-icon-small"><i class="fas fa-users"></i></div>
@@ -260,9 +247,8 @@
 
 <script>
     let activeRefresh = null;
-    let knownWarnings = new Set();
 
-    // Enhanced log parser for account lock detection
+    // Helper: Enhanced log parser that detects account lock / suspension / share stop patterns
     function detectAccountWarningFromLogs(logsArray) {
         if (!logsArray || !logsArray.length) return null;
         const warningKeywords = [
@@ -286,6 +272,7 @@
         return null;
     }
 
+    // fetch logs for a specific session
     async function loadSessionLogs(sessionId, containerEl, sessionData) {
         try {
             const res = await fetch(`/api/session/${sessionId}/logs`);
@@ -293,12 +280,12 @@
             if (data.success && data.logs) {
                 const logs = data.logs;
                 let warningDetected = detectAccountWarningFromLogs(logs);
+                
                 const sessionCard = containerEl.closest('.session-card');
                 const headerStatusSpan = sessionCard?.querySelector('.session-status');
                 if (warningDetected && headerStatusSpan && !headerStatusSpan.classList.contains('status-warning')) {
                     headerStatusSpan.classList.add('status-warning');
-                    const originalHtml = headerStatusSpan.innerHTML;
-                    if (!originalHtml.includes('⚠️')) {
+                    if (!headerStatusSpan.innerHTML.includes('⚠️')) {
                         headerStatusSpan.innerHTML = `⚠️ ${headerStatusSpan.innerHTML} ⚠️`;
                     }
                     const headerDiv = sessionCard.querySelector('.session-header');
@@ -311,6 +298,7 @@
                         headerDiv.appendChild(warnNote);
                     }
                 }
+                
                 if (logs.length === 0) {
                     containerEl.innerHTML = '<div style="padding: 12px;">📭 No detailed logs yet.</div>';
                     return;
@@ -329,6 +317,7 @@
                     `;
                 }).join('');
                 containerEl.innerHTML = `<div style="max-height:250px; overflow-y:auto;">${logsHtml}</div>`;
+                
                 if (warningDetected && sessionData && sessionData.status === 'running') {
                     return warningDetected;
                 }
@@ -353,7 +342,21 @@
         });
     }
     
-    // MAIN FETCH: updates total shares, active/completed, AND global counting progress (current/totalTarget)
+    // Function to update a specific session's counter display with green color (e.g., "10/100" in green)
+    function updateSessionCounterGreen(sessionCard, sharedCount, targetAmount) {
+        const progressSpan = sessionCard.querySelector('.session-progress-value');
+        if (progressSpan) {
+            const newValue = `${sharedCount || 0}/${targetAmount || 0}`;
+            progressSpan.innerText = newValue;
+            // Add green highlight animation
+            progressSpan.style.animation = 'none';
+            progressSpan.offsetHeight;
+            progressSpan.style.animation = 'countPulse 0.3s ease';
+            setTimeout(() => { if(progressSpan) progressSpan.style.animation = ''; }, 300);
+        }
+    }
+    
+    // MAIN FETCH: updates total shares, active/completed, and per-session green counters (X/Y)
     async function fetchSessionsAndLogs() {
         try {
             const res = await fetch('/api/sessions/summary');
@@ -366,32 +369,14 @@
             const completedCount = sessions.filter(s => s.status === 'completed').length;
             const finalActive = activeCount;
             const finalCompleted = completedCount;
-            // current total shares from all sessions
-            let currentTotalShares = totals.totalShares !== undefined ? totals.totalShares : sessions.reduce((sum, s) => sum + (s.sharedCount || 0), 0);
-            // sum of all target amounts across sessions to show counting like "120/500"
-            const totalTargetSum = sessions.reduce((sum, s) => sum + (s.targetAmount || 0), 0);
+            const finalTotalShares = totals.totalShares !== undefined ? totals.totalShares : sessions.reduce((sum, s) => sum + (s.sharedCount || 0), 0);
             
-            // Update main green counters
-            document.getElementById('logs-total-shares').innerText = currentTotalShares;
+            // Update main stat cards (green)
+            document.getElementById('logs-total-shares').innerText = finalTotalShares;
             document.getElementById('logs-active-sessions').innerText = finalActive;
             document.getElementById('logs-completed-sessions').innerText = finalCompleted;
             
-            // UPDATE the special counting display: shows (currentTotalShares) / (totalTargetSum) -> e.g., 10/100 style
-            const globalCountingCurrentSpan = document.getElementById('globalCountingCurrent');
-            const globalCountingTargetSpan = document.getElementById('globalCountingTarget');
-            if (globalCountingCurrentSpan) globalCountingCurrentSpan.innerText = currentTotalShares;
-            if (globalCountingTargetSpan) globalCountingTargetSpan.innerText = totalTargetSum;
-            
-            // Animation effect on the counting numbers for better UX
-            const countingValueEl = document.getElementById('globalCountingCurrent');
-            if (countingValueEl) {
-                countingValueEl.style.animation = 'none';
-                countingValueEl.offsetHeight;
-                countingValueEl.style.animation = 'gentleGlow 0.3s ease';
-                setTimeout(() => { if(countingValueEl) countingValueEl.style.animation = ''; }, 300);
-            }
-            
-            // Also apply similar glow to main stat numbers
+            // Animate main green counters
             const greenNumbers = ['logs-total-shares', 'logs-active-sessions', 'logs-completed-sessions'];
             greenNumbers.forEach(id => {
                 const el = document.getElementById(id);
@@ -409,61 +394,99 @@
                 document.getElementById('globalWarningBanner').style.display = 'none';
                 return;
             }
-            container.innerHTML = '';
+            
+            // Store existing session cards to reuse and update counters efficiently
+            const existingCards = new Map();
+            document.querySelectorAll('.session-card').forEach(card => {
+                const header = card.querySelector('.session-header');
+                const sessionIdAttr = header?.getAttribute('data-sessionid');
+                if (sessionIdAttr) existingCards.set(sessionIdAttr, card);
+            });
+            
+            // If we need to rebuild or update
+            const newSessionIds = new Set(sessions.map(s => s.sessionId));
+            // Remove cards for sessions that no longer exist
+            for (let [sessId, card] of existingCards.entries()) {
+                if (!newSessionIds.has(sessId)) {
+                    card.remove();
+                    existingCards.delete(sessId);
+                }
+            }
+            
             let globalWarningActive = false;
             let globalWarningMsg = '';
             
-            // Build session cards
             for (const sess of sessions) {
-                const sessionCard = document.createElement('div');
-                sessionCard.className = 'session-card';
-                const statusClass = sess.status === 'running' ? 'status-running' : 'status-completed';
-                const statusText = sess.status === 'running' ? 'PROCESSING' : 'COMPLETED';
+                let sessionCard = existingCards.get(sess.sessionId);
                 const shareProgress = `${sess.sharedCount || 0}/${sess.targetAmount || 0}`;
-                sessionCard.innerHTML = `
-                    <div class="session-header" data-sessionid="${sess.sessionId}">
-                        <div>
-                            <i class="fas fa-microchip"></i> 
-                            <span class="session-id">${sess.sessionId.substring(0, 18)}...</span>
-                            <div style="font-size:11px; color:#9a8acf; margin-top:4px; max-width:320px; word-break:break-word;">${sess.url ? sess.url.substring(0, 65) : 'No URL'}</div>
-                        </div>
-                        <div style="display: flex; gap: 12px; align-items: center; flex-wrap:wrap;">
-                            <span class="stat-badge process-counter-fixed"><i class="fas fa-share-alt"></i> <span class="session-progress-value">${shareProgress}</span></span>
-                            <span class="session-status ${statusClass}"><i class="fas ${sess.status === 'running' ? 'fa-sync-alt fa-spin' : 'fa-check-circle'}"></i> ${statusText}</span>
-                        </div>
-                        <div><i class="fas fa-chevron-down" style="cursor:pointer; color:#aa99ff;"></i></div>
-                    </div>
-                    <div class="log-details" id="logs-${sess.sessionId}">
-                        <div style="padding: 8px;"><i class="fas fa-spinner fa-pulse"></i> Loading logs...</div>
-                    </div>
-                `;
-                container.appendChild(sessionCard);
                 
-                const header = sessionCard.querySelector('.session-header');
-                const logDiv = sessionCard.querySelector('.log-details');
-                let logsLoaded = false;
-                let warningForSession = null;
-                header.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    const isOpen = logDiv.classList.contains('open');
-                    if (!isOpen) {
-                        logDiv.classList.add('open');
-                        if (!logsLoaded) {
-                            const warnObj = await loadSessionLogs(sess.sessionId, logDiv, sess);
-                            if (warnObj) warningForSession = warnObj;
-                            logsLoaded = true;
-                            if (warningForSession && !globalWarningActive) {
-                                globalWarningActive = true;
-                                globalWarningMsg = warningForSession.reason || "Share stopped - possible account lock/suspension";
-                                updateGlobalWarning(globalWarningMsg);
+                if (!sessionCard) {
+                    // Create new card
+                    sessionCard = document.createElement('div');
+                    sessionCard.className = 'session-card';
+                    const statusClass = sess.status === 'running' ? 'status-running' : 'status-completed';
+                    const statusText = sess.status === 'running' ? 'PROCESSING' : 'COMPLETED';
+                    sessionCard.innerHTML = `
+                        <div class="session-header" data-sessionid="${sess.sessionId}">
+                            <div>
+                                <i class="fas fa-microchip"></i> 
+                                <span class="session-id">${sess.sessionId.substring(0, 18)}...</span>
+                                <div style="font-size:11px; color:#9a8acf; margin-top:4px; max-width:320px; word-break:break-word;">${sess.url ? sess.url.substring(0, 65) : 'No URL'}</div>
+                            </div>
+                            <div style="display: flex; gap: 12px; align-items: center; flex-wrap:wrap;">
+                                <span class="stat-badge process-counter-fixed"><i class="fas fa-share-alt"></i> <span class="counter-green session-progress-value">${shareProgress}</span></span>
+                                <span class="session-status ${statusClass}"><i class="fas ${sess.status === 'running' ? 'fa-sync-alt fa-spin' : 'fa-check-circle'}"></i> ${statusText}</span>
+                            </div>
+                            <div><i class="fas fa-chevron-down" style="cursor:pointer; color:#aa99ff;"></i></div>
+                        </div>
+                        <div class="log-details" id="logs-${sess.sessionId}">
+                            <div style="padding: 8px;"><i class="fas fa-spinner fa-pulse"></i> Loading logs...</div>
+                        </div>
+                    `;
+                    container.appendChild(sessionCard);
+                    existingCards.set(sess.sessionId, sessionCard);
+                    
+                    // attach event listener for expand
+                    const header = sessionCard.querySelector('.session-header');
+                    const logDiv = sessionCard.querySelector('.log-details');
+                    let logsLoaded = false;
+                    header.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        const isOpen = logDiv.classList.contains('open');
+                        if (!isOpen) {
+                            logDiv.classList.add('open');
+                            if (!logsLoaded) {
+                                await loadSessionLogs(sess.sessionId, logDiv, sess);
+                                logsLoaded = true;
                             }
+                        } else {
+                            logDiv.classList.remove('open');
                         }
-                    } else {
-                        logDiv.classList.remove('open');
+                    });
+                } else {
+                    // Update existing card: progress counter, status, url
+                    const progressSpan = sessionCard.querySelector('.session-progress-value');
+                    if (progressSpan) {
+                        progressSpan.innerText = shareProgress;
+                        progressSpan.style.animation = 'none';
+                        progressSpan.offsetHeight;
+                        progressSpan.style.animation = 'countPulse 0.3s ease';
+                        setTimeout(() => { if(progressSpan) progressSpan.style.animation = ''; }, 300);
                     }
-                });
+                    const statusSpan = sessionCard.querySelector('.session-status');
+                    if (statusSpan) {
+                        const newStatusClass = sess.status === 'running' ? 'status-running' : 'status-completed';
+                        const newStatusText = sess.status === 'running' ? 'PROCESSING' : 'COMPLETED';
+                        statusSpan.className = `session-status ${newStatusClass}`;
+                        statusSpan.innerHTML = `<i class="fas ${sess.status === 'running' ? 'fa-sync-alt fa-spin' : 'fa-check-circle'}"></i> ${newStatusText}`;
+                    }
+                    const urlDiv = sessionCard.querySelector('.session-header div:first-child div');
+                    if (urlDiv && sess.url) {
+                        urlDiv.innerText = sess.url.substring(0, 65);
+                    }
+                }
                 
-                // background warning detection without opening logs
+                // Background warning detection for this session
                 (async () => {
                     try {
                         const logRes = await fetch(`/api/session/${sess.sessionId}/logs`);
@@ -531,14 +554,9 @@
                 document.getElementById('globalWarningBanner').style.display = 'none';
             }
         }
-        // Also ensure counting numbers are never black or missing (forced visibility)
-        const currentSpan = document.getElementById('globalCountingCurrent');
-        const targetSpan = document.getElementById('globalCountingTarget');
-        if (currentSpan && currentSpan.innerText.trim() === '') currentSpan.innerText = '0';
-        if (targetSpan && targetSpan.innerText.trim() === '') targetSpan.innerText = '0';
     }
     
-    // Periodic refresh and ensure green counting style consistency
+    // Ensure stats never empty and green counters visible
     setInterval(() => {
         const activeSpan = document.getElementById('logs-active-sessions');
         const completedSpan = document.getElementById('logs-completed-sessions');
@@ -547,9 +565,12 @@
         const sharesSpan = document.getElementById('logs-total-shares');
         if (sharesSpan && sharesSpan.innerText === '') sharesSpan.innerText = '0';
         
-        // Counting display reinforcement: don't let numbers be black
-        const countingCurrent = document.getElementById('globalCountingCurrent');
-        if (countingCurrent && countingCurrent.innerText === '') countingCurrent.innerText = '0';
+        // ensure any session progress counter has proper green styling (in case of dynamic injection)
+        document.querySelectorAll('.session-progress-value').forEach(el => {
+            if (!el.classList.contains('counter-green')) {
+                el.classList.add('counter-green');
+            }
+        });
     }, 1000);
     
     enhancedMonitor();
@@ -561,8 +582,9 @@
         const compEl = document.getElementById('logs-completed-sessions');
         if (activeEl && activeEl.innerText === '') activeEl.innerText = '0';
         if (compEl && compEl.innerText === '') compEl.innerText = '0';
-        const countingCurrent = document.getElementById('globalCountingCurrent');
-        if (countingCurrent && countingCurrent.innerText === '') countingCurrent.innerText = '0';
+        document.querySelectorAll('.session-progress-value').forEach(el => {
+            if (!el.classList.contains('counter-green')) el.classList.add('counter-green');
+        });
     });
     observer.observe(document.getElementById('sessionsLogsContainer') || document.body, { childList: true, subtree: true });
 </script>
