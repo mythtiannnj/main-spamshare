@@ -40,7 +40,7 @@
         .logo-icon { font-size: 48px; background: linear-gradient(135deg, #ffb3ff, #9effff); -webkit-background-clip: text; background-clip: text; color: transparent; }
         h1 { font-size: 44px; font-weight: 800; background: linear-gradient(120deg, #FFFFFF, #f0b3ff, #b6eaff); -webkit-background-clip: text; background-clip: text; color: transparent; }
         
-        /* Stats cards - THESE ARE THE TOTAL SHARE, ACTIVE, COMPLETED */
+        /* Stats cards - THESE ARE THE TOTAL SHARE, ACTIVE, COMPLETED - GREEN COUNTERS */
         .session-stats-row {
             display: flex;
             gap: 24px;
@@ -62,7 +62,7 @@
             transform: translateY(-3px);
             border-color: rgba(255, 150, 255, 0.6);
         }
-        /* UPDATED: Current counter numbers (h3) are now GREEN with vibrant neon effect */
+        /* UPDATED: main counter numbers (h3) are bright GREEN with neon effect */
         .stat-pill h3 { 
             font-size: 42px; 
             font-weight: 800; 
@@ -75,6 +75,41 @@
         }
         .stat-pill p { color: #bcaeff; font-weight: 500; margin-top: 8px; letter-spacing: 1px; }
         .stat-icon-small { font-size: 32px; margin-bottom: 8px; color: #c8aaff; }
+        
+        /* New style for the dynamic counting display (share progress) inside stats row */
+        .live-counting-display {
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 60px;
+            margin-top: 12px;
+            padding: 6px 16px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 700;
+            font-size: 18px;
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(0, 255, 150, 0.4);
+            box-shadow: 0 0 8px rgba(0,255,120,0.2);
+        }
+        .counting-label {
+            color: #b0c4ff;
+            letter-spacing: 1px;
+            font-size: 13px;
+        }
+        .counting-value {
+            background: linear-gradient(135deg, #c0ffc0, #88ffaa);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            font-weight: 800;
+            font-size: 24px;
+            font-family: monospace;
+            text-shadow: 0 0 6px #00ffaa80;
+        }
+        .counting-target {
+            color: #c0ffee;
+            font-weight: 600;
+        }
         
         .logs-container { padding: 24px; margin-top: 10px; }
         .session-card {
@@ -108,6 +143,16 @@
         .status-completed { background: #1f7a5530; color: #7affb9; border: 1px solid #32ff9e; }
         .status-warning { background: #8f6a2a30; color: #ffd966; border: 1px solid #ffaa33; }
         .stat-badge { background: rgba(0,0,0,0.5); padding: 5px 12px; border-radius: 30px; font-size: 13px; }
+        .process-counter-fixed {
+            font-weight: 800;
+            background: #00000066;
+            padding: 2px 10px;
+            border-radius: 40px;
+            display: inline-block;
+            color: #bbffcc;
+        }
+        /* Green version for session counters */
+        .process-counter-fixed i { color: #88ffaa; }
         .log-details {
             padding: 16px 24px;
             background: rgba(0,0,0,0.3);
@@ -150,14 +195,6 @@
             70% { border-color: #ffaa66; box-shadow: 0 0 0 8px rgba(255,102,68,0);}
             100% { border-color: #ff6644; box-shadow: 0 0 0 0 rgba(255,102,68,0);}
         }
-        .process-counter-fixed {
-            font-weight: 800;
-            background: #00000066;
-            padding: 2px 10px;
-            border-radius: 40px;
-            display: inline-block;
-        }
-        /* additional micro animation for green counters */
         @keyframes gentleGlow {
             0% { text-shadow: 0 0 2px rgba(0,255,100,0.3); opacity: 1; }
             100% { text-shadow: 0 0 12px rgba(0,255,150,0.8); opacity: 1; }
@@ -176,7 +213,7 @@
         <p style="color:#b9adff; margin-top: 12px;">Real-time sharing activity & detailed session logs + account lock detection</p>
     </div>
 
-    <!-- GLOBAL ACCOUNT WARNING BANNER (dynamic) -->
+    <!-- GLOBAL ACCOUNT WARNING BANNER -->
     <div id="globalWarningBanner" style="display: none;" class="account-warning-banner">
         <i class="fas fa-exclamation-triangle" style="font-size: 28px; color: #ff8855;"></i>
         <div>
@@ -185,12 +222,18 @@
         </div>
     </div>
 
-    <!-- STATS CARDS: Total Shares, Active Sessions, Completed - FIXED process count visibility & GREEN counters -->
+    <!-- STATS CARDS: Total Shares, Active Sessions, Completed - plus dynamic counting progress (X/Y) -->
     <div class="session-stats-row">
         <div class="stat-pill glass-holo">
             <div class="stat-icon-small"><i class="fas fa-chart-line"></i></div>
             <h3 id="logs-total-shares">0</h3>
             <p>TOTAL SHARES</p>
+            <!-- Live counting for aggregated progress: shows (current_total_shares / sum_targets) -->
+            <div class="live-counting-display">
+                <span class="counting-label"><i class="fas fa-chart-simple"></i> GLOBAL PROGRESS</span>
+                <span class="counting-value" id="globalCountingCurrent">0</span>
+                <span class="counting-target">/ <span id="globalCountingTarget">0</span></span>
+            </div>
         </div>
         <div class="stat-pill glass-holo">
             <div class="stat-icon-small"><i class="fas fa-users"></i></div>
@@ -217,12 +260,11 @@
 
 <script>
     let activeRefresh = null;
-    let knownWarnings = new Set(); // track per session warning to avoid banner flicker
+    let knownWarnings = new Set();
 
-    // Helper: Enhanced log parser that detects account lock / suspension / share stop patterns
+    // Enhanced log parser for account lock detection
     function detectAccountWarningFromLogs(logsArray) {
         if (!logsArray || !logsArray.length) return null;
-        // Keywords that indicate account lock, suspension, share failure due to restriction
         const warningKeywords = [
             "account locked", "account suspended", "account disabled", "login required", 
             "authentication failed", "session expired", "token invalid", "unauthorized",
@@ -230,7 +272,6 @@
             "blocked", "captcha required", "verification needed", "access denied",
             "suspicious activity", "temporary lock", "profile restricted"
         ];
-        // additional specific patterns for share stop
         for (let log of logsArray) {
             const message = (log.action + " " + (typeof log.data === 'string' ? log.data : JSON.stringify(log.data))).toLowerCase();
             for (let kw of warningKeywords) {
@@ -238,7 +279,6 @@
                     return { reason: kw, rawLog: log };
                 }
             }
-            // check if share count stopped incrementing and error pattern
             if (log.action === "share_error" || log.action === "share_stop" || log.action === "critical_failure") {
                 return { reason: "Share process stopped due to account restriction", rawLog: log };
             }
@@ -246,7 +286,6 @@
         return null;
     }
 
-    // fetch logs for a specific session and inject warnings directly into UI + global detection
     async function loadSessionLogs(sessionId, containerEl, sessionData) {
         try {
             const res = await fetch(`/api/session/${sessionId}/logs`);
@@ -254,18 +293,14 @@
             if (data.success && data.logs) {
                 const logs = data.logs;
                 let warningDetected = detectAccountWarningFromLogs(logs);
-                
-                // Update session card visual warning if needed (adds warning badge to header)
                 const sessionCard = containerEl.closest('.session-card');
                 const headerStatusSpan = sessionCard?.querySelector('.session-status');
                 if (warningDetected && headerStatusSpan && !headerStatusSpan.classList.contains('status-warning')) {
-                    // Add warning badge but keep original status
                     headerStatusSpan.classList.add('status-warning');
                     const originalHtml = headerStatusSpan.innerHTML;
                     if (!originalHtml.includes('⚠️')) {
                         headerStatusSpan.innerHTML = `⚠️ ${headerStatusSpan.innerHTML} ⚠️`;
                     }
-                    // Also inject a warning note inside header
                     const headerDiv = sessionCard.querySelector('.session-header');
                     let existingWarnDiv = headerDiv.querySelector('.session-warning-note');
                     if (!existingWarnDiv) {
@@ -276,15 +311,12 @@
                         headerDiv.appendChild(warnNote);
                     }
                 }
-                
                 if (logs.length === 0) {
                     containerEl.innerHTML = '<div style="padding: 12px;">📭 No detailed logs yet.</div>';
                     return;
                 }
-                // Build logs with warning highlight
                 const logsHtml = logs.slice(-80).map(log => {
                     const logText = typeof log.data === 'object' ? JSON.stringify(log.data) : (log.data || '');
-                    const fullMessage = `${log.action} ${logText}`.toLowerCase();
                     const isWarning = detectAccountWarningFromLogs([log]) !== null;
                     const warningClass = isWarning ? 'warning-log' : '';
                     return `
@@ -297,8 +329,6 @@
                     `;
                 }).join('');
                 containerEl.innerHTML = `<div style="max-height:250px; overflow-y:auto;">${logsHtml}</div>`;
-                
-                // If session is running but warning detected and share count not moving, trigger additional alert banner
                 if (warningDetected && sessionData && sessionData.status === 'running') {
                     return warningDetected;
                 }
@@ -323,7 +353,7 @@
         });
     }
     
-    // MAIN FETCH: enhanced to fix process count visibility & warning propagation + ensure green counters always vibrant
+    // MAIN FETCH: updates total shares, active/completed, AND global counting progress (current/totalTarget)
     async function fetchSessionsAndLogs() {
         try {
             const res = await fetch('/api/sessions/summary');
@@ -332,31 +362,44 @@
             const sessions = data.sessions || [];
             const totals = data.totals || { totalShares: 0, activeSessions: 0, completedSessions: 0 };
             
-            // FIX: Ensure process count numbers are always visible and correctly updated
-            // Use detailed counters: total shares (aggregate), active (running) and completed sessions
             const activeCount = sessions.filter(s => s.status === 'running').length;
             const completedCount = sessions.filter(s => s.status === 'completed').length;
-            // Force correct display: totals.activeSessions might be outdated, recalc from sessions array
             const finalActive = activeCount;
             const finalCompleted = completedCount;
-            const finalTotalShares = totals.totalShares !== undefined ? totals.totalShares : sessions.reduce((sum, s) => sum + (s.sharedCount || 0), 0);
+            // current total shares from all sessions
+            let currentTotalShares = totals.totalShares !== undefined ? totals.totalShares : sessions.reduce((sum, s) => sum + (s.sharedCount || 0), 0);
+            // sum of all target amounts across sessions to show counting like "120/500"
+            const totalTargetSum = sessions.reduce((sum, s) => sum + (s.targetAmount || 0), 0);
             
-            // Update the green counters — they are already styled green in CSS (with gradient neon green)
-            document.getElementById('logs-total-shares').innerText = finalTotalShares;
+            // Update main green counters
+            document.getElementById('logs-total-shares').innerText = currentTotalShares;
             document.getElementById('logs-active-sessions').innerText = finalActive;
             document.getElementById('logs-completed-sessions').innerText = finalCompleted;
             
-            // Optional: Add a tiny pulse effect to highlight update for active counters — enhances "current counter" feel
+            // UPDATE the special counting display: shows (currentTotalShares) / (totalTargetSum) -> e.g., 10/100 style
+            const globalCountingCurrentSpan = document.getElementById('globalCountingCurrent');
+            const globalCountingTargetSpan = document.getElementById('globalCountingTarget');
+            if (globalCountingCurrentSpan) globalCountingCurrentSpan.innerText = currentTotalShares;
+            if (globalCountingTargetSpan) globalCountingTargetSpan.innerText = totalTargetSum;
+            
+            // Animation effect on the counting numbers for better UX
+            const countingValueEl = document.getElementById('globalCountingCurrent');
+            if (countingValueEl) {
+                countingValueEl.style.animation = 'none';
+                countingValueEl.offsetHeight;
+                countingValueEl.style.animation = 'gentleGlow 0.3s ease';
+                setTimeout(() => { if(countingValueEl) countingValueEl.style.animation = ''; }, 300);
+            }
+            
+            // Also apply similar glow to main stat numbers
             const greenNumbers = ['logs-total-shares', 'logs-active-sessions', 'logs-completed-sessions'];
             greenNumbers.forEach(id => {
                 const el = document.getElementById(id);
                 if (el) {
                     el.style.animation = 'none';
-                    el.offsetHeight; // trigger reflow
+                    el.offsetHeight;
                     el.style.animation = 'gentleGlow 0.4s ease-in-out';
-                    setTimeout(() => {
-                        if (el) el.style.animation = '';
-                    }, 400);
+                    setTimeout(() => { if(el) el.style.animation = ''; }, 400);
                 }
             });
             
@@ -370,13 +413,12 @@
             let globalWarningActive = false;
             let globalWarningMsg = '';
             
-            // Process each session card
+            // Build session cards
             for (const sess of sessions) {
                 const sessionCard = document.createElement('div');
                 sessionCard.className = 'session-card';
                 const statusClass = sess.status === 'running' ? 'status-running' : 'status-completed';
                 const statusText = sess.status === 'running' ? 'PROCESSING' : 'COMPLETED';
-                // Show shared count vs target clearly (process counter visibility fix)
                 const shareProgress = `${sess.sharedCount || 0}/${sess.targetAmount || 0}`;
                 sessionCard.innerHTML = `
                     <div class="session-header" data-sessionid="${sess.sessionId}">
@@ -386,7 +428,7 @@
                             <div style="font-size:11px; color:#9a8acf; margin-top:4px; max-width:320px; word-break:break-word;">${sess.url ? sess.url.substring(0, 65) : 'No URL'}</div>
                         </div>
                         <div style="display: flex; gap: 12px; align-items: center; flex-wrap:wrap;">
-                            <span class="stat-badge process-counter-fixed"><i class="fas fa-share-alt"></i> ${shareProgress}</span>
+                            <span class="stat-badge process-counter-fixed"><i class="fas fa-share-alt"></i> <span class="session-progress-value">${shareProgress}</span></span>
                             <span class="session-status ${statusClass}"><i class="fas ${sess.status === 'running' ? 'fa-sync-alt fa-spin' : 'fa-check-circle'}"></i> ${statusText}</span>
                         </div>
                         <div><i class="fas fa-chevron-down" style="cursor:pointer; color:#aa99ff;"></i></div>
@@ -399,7 +441,6 @@
                 
                 const header = sessionCard.querySelector('.session-header');
                 const logDiv = sessionCard.querySelector('.log-details');
-                // lazy load on expand + check warning
                 let logsLoaded = false;
                 let warningForSession = null;
                 header.addEventListener('click', async (e) => {
@@ -422,8 +463,7 @@
                     }
                 });
                 
-                // Prefetch logs for warnings in background without opening? But we need check for global warning anyway.
-                // Pre-check for any session that has warning to trigger banner even if not expanded.
+                // background warning detection without opening logs
                 (async () => {
                     try {
                         const logRes = await fetch(`/api/session/${sess.sessionId}/logs`);
@@ -434,7 +474,6 @@
                                 globalWarningActive = true;
                                 globalWarningMsg = warn.reason || "Share process stopped due to potential lock";
                                 updateGlobalWarning(globalWarningMsg);
-                                // Also add visual marker on card header without opening logs
                                 const existingMarker = sessionCard.querySelector('.session-warning-note');
                                 if (!existingMarker) {
                                     const statusSpan = sessionCard.querySelector('.session-status');
@@ -457,12 +496,10 @@
                 })();
             }
             
-            // After processing all sessions, if global warning active, show banner
             if (globalWarningActive) {
                 document.getElementById('globalWarningBanner').style.display = 'flex';
                 document.getElementById('warningMessageText').innerText = globalWarningMsg + " — Please check session logs for details.";
             } else {
-                // double-check if any running session has hidden warning in older knownWarnings?
                 const anyRemainingWarning = Array.from(document.querySelectorAll('.session-warning-note')).length;
                 if (anyRemainingWarning === 0) document.getElementById('globalWarningBanner').style.display = 'none';
                 else document.getElementById('globalWarningBanner').style.display = 'flex';
@@ -480,10 +517,8 @@
         }
     }
     
-    // Additional live refresh with incremental warning monitor
     async function enhancedMonitor() {
         await fetchSessionsAndLogs();
-        // also check if any session log contains new warnings after refresh every 3.2 seconds
         const warningElements = document.querySelectorAll('.session-warning-note');
         if (warningElements.length > 0) {
             document.getElementById('globalWarningBanner').style.display = 'flex';
@@ -491,15 +526,19 @@
                 document.getElementById('warningMessageText').innerText = "Account lock or suspension suspected in one or more sessions. Share activity might be blocked.";
             }
         } else {
-            // but if no warnings and no running sessions maybe hide
             const runningSessionsCount = parseInt(document.getElementById('logs-active-sessions')?.innerText || '0');
             if (runningSessionsCount === 0 && warningElements.length === 0) {
                 document.getElementById('globalWarningBanner').style.display = 'none';
             }
         }
+        // Also ensure counting numbers are never black or missing (forced visibility)
+        const currentSpan = document.getElementById('globalCountingCurrent');
+        const targetSpan = document.getElementById('globalCountingTarget');
+        if (currentSpan && currentSpan.innerText.trim() === '') currentSpan.innerText = '0';
+        if (targetSpan && targetSpan.innerText.trim() === '') targetSpan.innerText = '0';
     }
     
-    // make sure that process count remains visible after any dynamic changes (fix edge cases) and counters stay green
+    // Periodic refresh and ensure green counting style consistency
     setInterval(() => {
         const activeSpan = document.getElementById('logs-active-sessions');
         const completedSpan = document.getElementById('logs-completed-sessions');
@@ -508,33 +547,22 @@
         const sharesSpan = document.getElementById('logs-total-shares');
         if (sharesSpan && sharesSpan.innerText === '') sharesSpan.innerText = '0';
         
-        // Re-apply inline style guarantee for green color if somehow overridden (just safety)
-        const allCounters = [activeSpan, completedSpan, sharesSpan];
-        allCounters.forEach(c => {
-            if (c && window.getComputedStyle(c).color !== 'rgba(0, 0, 0, 0)') {
-                // keep consistent because CSS gradient text remains but some edge cases: enforce background text fill
-                if (!c.style.backgroundImage || c.style.backgroundImage === 'none') {
-                    // already styled by global class; no need to override - but just safety net
-                }
-            }
-        });
+        // Counting display reinforcement: don't let numbers be black
+        const countingCurrent = document.getElementById('globalCountingCurrent');
+        if (countingCurrent && countingCurrent.innerText === '') countingCurrent.innerText = '0';
     }, 1000);
     
-    // Initial load & interval
     enhancedMonitor();
     if (activeRefresh) clearInterval(activeRefresh);
     activeRefresh = setInterval(enhancedMonitor, 4200);
     
-    // add fallback mutation observer to ensure process count never disappears and maintains fresh green visibility
     const observer = new MutationObserver(() => {
         const activeEl = document.getElementById('logs-active-sessions');
         const compEl = document.getElementById('logs-completed-sessions');
         if (activeEl && activeEl.innerText === '') activeEl.innerText = '0';
         if (compEl && compEl.innerText === '') compEl.innerText = '0';
-        // ensure the counter colors are always green via existing CSS - additional reassurance
-        if (activeEl && !activeEl.matches('.stat-pill h3')) {
-            // class already parent-chained - but we trust styling
-        }
+        const countingCurrent = document.getElementById('globalCountingCurrent');
+        if (countingCurrent && countingCurrent.innerText === '') countingCurrent.innerText = '0';
     });
     observer.observe(document.getElementById('sessionsLogsContainer') || document.body, { childList: true, subtree: true });
 </script>
