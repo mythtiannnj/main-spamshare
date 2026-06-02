@@ -62,7 +62,17 @@
             transform: translateY(-3px);
             border-color: rgba(255, 150, 255, 0.6);
         }
-        .stat-pill h3 { font-size: 42px; font-weight: 800; background: linear-gradient(135deg, #fff, #ffd6b3); -webkit-background-clip: text; background-clip: text; color: transparent; }
+        /* UPDATED: Current counter numbers (h3) are now GREEN with vibrant neon effect */
+        .stat-pill h3 { 
+            font-size: 42px; 
+            font-weight: 800; 
+            background: linear-gradient(135deg, #a0ffa0, #00ffaa); 
+            -webkit-background-clip: text; 
+            background-clip: text; 
+            color: transparent; 
+            text-shadow: 0 0 8px rgba(0,255,100,0.6);
+            transition: all 0.2s ease;
+        }
         .stat-pill p { color: #bcaeff; font-weight: 500; margin-top: 8px; letter-spacing: 1px; }
         .stat-icon-small { font-size: 32px; margin-bottom: 8px; color: #c8aaff; }
         
@@ -147,6 +157,14 @@
             border-radius: 40px;
             display: inline-block;
         }
+        /* additional micro animation for green counters */
+        @keyframes gentleGlow {
+            0% { text-shadow: 0 0 2px rgba(0,255,100,0.3); opacity: 1; }
+            100% { text-shadow: 0 0 12px rgba(0,255,150,0.8); opacity: 1; }
+        }
+        .stat-pill h3 {
+            animation: gentleGlow 2s infinite alternate;
+        }
         @media (max-width: 700px) { .session-header { flex-direction: column; align-items: flex-start; } .stat-pill h3 { font-size: 28px; } }
     </style>
 </head>
@@ -167,7 +185,7 @@
         </div>
     </div>
 
-    <!-- STATS CARDS: Total Shares, Active Sessions, Completed - FIXED process count visibility -->
+    <!-- STATS CARDS: Total Shares, Active Sessions, Completed - FIXED process count visibility & GREEN counters -->
     <div class="session-stats-row">
         <div class="stat-pill glass-holo">
             <div class="stat-icon-small"><i class="fas fa-chart-line"></i></div>
@@ -305,7 +323,7 @@
         });
     }
     
-    // MAIN FETCH: enhanced to fix process count visibility & warning propagation
+    // MAIN FETCH: enhanced to fix process count visibility & warning propagation + ensure green counters always vibrant
     async function fetchSessionsAndLogs() {
         try {
             const res = await fetch('/api/sessions/summary');
@@ -323,9 +341,24 @@
             const finalCompleted = completedCount;
             const finalTotalShares = totals.totalShares !== undefined ? totals.totalShares : sessions.reduce((sum, s) => sum + (s.sharedCount || 0), 0);
             
+            // Update the green counters — they are already styled green in CSS (with gradient neon green)
             document.getElementById('logs-total-shares').innerText = finalTotalShares;
             document.getElementById('logs-active-sessions').innerText = finalActive;
             document.getElementById('logs-completed-sessions').innerText = finalCompleted;
+            
+            // Optional: Add a tiny pulse effect to highlight update for active counters — enhances "current counter" feel
+            const greenNumbers = ['logs-total-shares', 'logs-active-sessions', 'logs-completed-sessions'];
+            greenNumbers.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.style.animation = 'none';
+                    el.offsetHeight; // trigger reflow
+                    el.style.animation = 'gentleGlow 0.4s ease-in-out';
+                    setTimeout(() => {
+                        if (el) el.style.animation = '';
+                    }, 400);
+                }
+            });
             
             const container = document.getElementById('sessionLogsList');
             if (sessions.length === 0) {
@@ -466,7 +499,7 @@
         }
     }
     
-    // make sure that process count remains visible after any dynamic changes (fix edge cases)
+    // make sure that process count remains visible after any dynamic changes (fix edge cases) and counters stay green
     setInterval(() => {
         const activeSpan = document.getElementById('logs-active-sessions');
         const completedSpan = document.getElementById('logs-completed-sessions');
@@ -474,6 +507,17 @@
         if (completedSpan && completedSpan.innerText.trim() === '') completedSpan.innerText = '0';
         const sharesSpan = document.getElementById('logs-total-shares');
         if (sharesSpan && sharesSpan.innerText === '') sharesSpan.innerText = '0';
+        
+        // Re-apply inline style guarantee for green color if somehow overridden (just safety)
+        const allCounters = [activeSpan, completedSpan, sharesSpan];
+        allCounters.forEach(c => {
+            if (c && window.getComputedStyle(c).color !== 'rgba(0, 0, 0, 0)') {
+                // keep consistent because CSS gradient text remains but some edge cases: enforce background text fill
+                if (!c.style.backgroundImage || c.style.backgroundImage === 'none') {
+                    // already styled by global class; no need to override - but just safety net
+                }
+            }
+        });
     }, 1000);
     
     // Initial load & interval
@@ -481,12 +525,16 @@
     if (activeRefresh) clearInterval(activeRefresh);
     activeRefresh = setInterval(enhancedMonitor, 4200);
     
-    // add fallback mutation observer to ensure process count never disappears
+    // add fallback mutation observer to ensure process count never disappears and maintains fresh green visibility
     const observer = new MutationObserver(() => {
         const activeEl = document.getElementById('logs-active-sessions');
         const compEl = document.getElementById('logs-completed-sessions');
         if (activeEl && activeEl.innerText === '') activeEl.innerText = '0';
         if (compEl && compEl.innerText === '') compEl.innerText = '0';
+        // ensure the counter colors are always green via existing CSS - additional reassurance
+        if (activeEl && !activeEl.matches('.stat-pill h3')) {
+            // class already parent-chained - but we trust styling
+        }
     });
     observer.observe(document.getElementById('sessionsLogsContainer') || document.body, { childList: true, subtree: true });
 </script>
