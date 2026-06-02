@@ -1,10 +1,9 @@
-<!-- logs.html - ALL STATS HERE (Total Shares, Active Sessions, Completed) + session logs -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-    <title>ShareBoost | Live Session Logs</title>
+    <title>ShareBoost | Live Session Logs & Account Monitor</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -97,6 +96,7 @@
         }
         .status-running { background: #2a6f8f30; color: #8dd0ff; border: 1px solid #3aa8ff; }
         .status-completed { background: #1f7a5530; color: #7affb9; border: 1px solid #32ff9e; }
+        .status-warning { background: #8f6a2a30; color: #ffd966; border: 1px solid #ffaa33; }
         .stat-badge { background: rgba(0,0,0,0.5); padding: 5px 12px; border-radius: 30px; font-size: 13px; }
         .log-details {
             padding: 16px 24px;
@@ -115,8 +115,38 @@
             color: #cdc9ff;
         }
         .log-time { color: #9f8eff; margin-right: 12px; }
+        .warning-log {
+            background: rgba(255, 80, 40, 0.15);
+            border-left: 3px solid #ff6644;
+            margin: 4px 0;
+        }
+        .warning-log span:last-child { color: #ffaa88; }
         .nav-back { margin-top: 30px; text-align: center; }
         .nav-link { color: #c5b3ff; text-decoration: none; padding: 10px 24px; border-radius: 40px; background: rgba(255,255,255,0.1); display: inline-block; margin: 0 8px; }
+        .account-warning-banner {
+            background: linear-gradient(95deg, #ff336630, #ff664430);
+            border: 1px solid #ff6644;
+            border-radius: 24px;
+            padding: 14px 20px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            backdrop-filter: blur(8px);
+            animation: pulseWarning 1.8s infinite;
+        }
+        @keyframes pulseWarning {
+            0% { border-color: #ff6644; box-shadow: 0 0 0 0 rgba(255,102,68,0.3);}
+            70% { border-color: #ffaa66; box-shadow: 0 0 0 8px rgba(255,102,68,0);}
+            100% { border-color: #ff6644; box-shadow: 0 0 0 0 rgba(255,102,68,0);}
+        }
+        .process-counter-fixed {
+            font-weight: 800;
+            background: #00000066;
+            padding: 2px 10px;
+            border-radius: 40px;
+            display: inline-block;
+        }
         @media (max-width: 700px) { .session-header { flex-direction: column; align-items: flex-start; } .stat-pill h3 { font-size: 28px; } }
     </style>
 </head>
@@ -125,10 +155,19 @@
     <div class="header-card glass-holo">
         <i class="fas fa-scroll logo-icon"></i>
         <h1>Live Session Logs</h1>
-        <p style="color:#b9adff; margin-top: 12px;">Real-time sharing activity & detailed session logs</p>
+        <p style="color:#b9adff; margin-top: 12px;">Real-time sharing activity & detailed session logs + account lock detection</p>
     </div>
 
-    <!-- STATS CARDS: Total Shares, Active Sessions, Completed - ONLY HERE, NOT ON DASHBOARD -->
+    <!-- GLOBAL ACCOUNT WARNING BANNER (dynamic) -->
+    <div id="globalWarningBanner" style="display: none;" class="account-warning-banner">
+        <i class="fas fa-exclamation-triangle" style="font-size: 28px; color: #ff8855;"></i>
+        <div>
+            <strong style="color:#ffaa77;">⚠️ ACCOUNT WARNING DETECTED</strong><br>
+            <span id="warningMessageText" style="font-size: 14px;">One or more sessions indicate account lock, suspension or share stop. Please verify your credentials.</span>
+        </div>
+    </div>
+
+    <!-- STATS CARDS: Total Shares, Active Sessions, Completed - FIXED process count visibility -->
     <div class="session-stats-row">
         <div class="stat-pill glass-holo">
             <div class="stat-icon-small"><i class="fas fa-chart-line"></i></div>
@@ -160,7 +199,113 @@
 
 <script>
     let activeRefresh = null;
+    let knownWarnings = new Set(); // track per session warning to avoid banner flicker
+
+    // Helper: Enhanced log parser that detects account lock / suspension / share stop patterns
+    function detectAccountWarningFromLogs(logsArray) {
+        if (!logsArray || !logsArray.length) return null;
+        // Keywords that indicate account lock, suspension, share failure due to restriction
+        const warningKeywords = [
+            "account locked", "account suspended", "account disabled", "login required", 
+            "authentication failed", "session expired", "token invalid", "unauthorized",
+            "share stopped", "sharing failed", "cannot share", "rate limit exceeded (account)",
+            "blocked", "captcha required", "verification needed", "access denied",
+            "suspicious activity", "temporary lock", "profile restricted"
+        ];
+        // additional specific patterns for share stop
+        for (let log of logsArray) {
+            const message = (log.action + " " + (typeof log.data === 'string' ? log.data : JSON.stringify(log.data))).toLowerCase();
+            for (let kw of warningKeywords) {
+                if (message.includes(kw)) {
+                    return { reason: kw, rawLog: log };
+                }
+            }
+            // check if share count stopped incrementing and error pattern
+            if (log.action === "share_error" || log.action === "share_stop" || log.action === "critical_failure") {
+                return { reason: "Share process stopped due to account restriction", rawLog: log };
+            }
+        }
+        return null;
+    }
+
+    // fetch logs for a specific session and inject warnings directly into UI + global detection
+    async function loadSessionLogs(sessionId, containerEl, sessionData) {
+        try {
+            const res = await fetch(`/api/session/${sessionId}/logs`);
+            const data = await res.json();
+            if (data.success && data.logs) {
+                const logs = data.logs;
+                let warningDetected = detectAccountWarningFromLogs(logs);
+                
+                // Update session card visual warning if needed (adds warning badge to header)
+                const sessionCard = containerEl.closest('.session-card');
+                const headerStatusSpan = sessionCard?.querySelector('.session-status');
+                if (warningDetected && headerStatusSpan && !headerStatusSpan.classList.contains('status-warning')) {
+                    // Add warning badge but keep original status
+                    headerStatusSpan.classList.add('status-warning');
+                    const originalHtml = headerStatusSpan.innerHTML;
+                    if (!originalHtml.includes('⚠️')) {
+                        headerStatusSpan.innerHTML = `⚠️ ${headerStatusSpan.innerHTML} ⚠️`;
+                    }
+                    // Also inject a warning note inside header
+                    const headerDiv = sessionCard.querySelector('.session-header');
+                    let existingWarnDiv = headerDiv.querySelector('.session-warning-note');
+                    if (!existingWarnDiv) {
+                        const warnNote = document.createElement('div');
+                        warnNote.className = 'session-warning-note';
+                        warnNote.style.cssText = 'font-size:11px; background:#ff443322; border-radius:20px; padding:4px 10px; margin-top:6px; color:#ffb366;';
+                        warnNote.innerHTML = `<i class="fas fa-ban"></i> ${warningDetected.reason.substring(0, 60)}...`;
+                        headerDiv.appendChild(warnNote);
+                    }
+                }
+                
+                if (logs.length === 0) {
+                    containerEl.innerHTML = '<div style="padding: 12px;">📭 No detailed logs yet.</div>';
+                    return;
+                }
+                // Build logs with warning highlight
+                const logsHtml = logs.slice(-80).map(log => {
+                    const logText = typeof log.data === 'object' ? JSON.stringify(log.data) : (log.data || '');
+                    const fullMessage = `${log.action} ${logText}`.toLowerCase();
+                    const isWarning = detectAccountWarningFromLogs([log]) !== null;
+                    const warningClass = isWarning ? 'warning-log' : '';
+                    return `
+                        <div class="log-entry ${warningClass}">
+                            <span class="log-time">${new Date(log.timestamp).toLocaleTimeString()}</span>
+                            <span><strong>${escapeHtml(log.action)}</strong></span>
+                            <span style="color:#ba9eff;"> ${escapeHtml(logText.substring(0, 140))}</span>
+                            ${isWarning ? '<i class="fas fa-exclamation-triangle" style="color:#ff8855; margin-left: 8px;"></i>' : ''}
+                        </div>
+                    `;
+                }).join('');
+                containerEl.innerHTML = `<div style="max-height:250px; overflow-y:auto;">${logsHtml}</div>`;
+                
+                // If session is running but warning detected and share count not moving, trigger additional alert banner
+                if (warningDetected && sessionData && sessionData.status === 'running') {
+                    return warningDetected;
+                }
+                return null;
+            } else {
+                containerEl.innerHTML = '<div>Failed to load logs</div>';
+                return null;
+            }
+        } catch (err) {
+            containerEl.innerHTML = '<div>Error fetching logs</div>';
+            return null;
+        }
+    }
     
+    function escapeHtml(str) {
+        if (!str) return '';
+        return str.replace(/[&<>]/g, function(m) {
+            if (m === '&') return '&amp;';
+            if (m === '<') return '&lt;';
+            if (m === '>') return '&gt;';
+            return m;
+        });
+    }
+    
+    // MAIN FETCH: enhanced to fix process count visibility & warning propagation
     async function fetchSessionsAndLogs() {
         try {
             const res = await fetch('/api/sessions/summary');
@@ -169,31 +314,46 @@
             const sessions = data.sessions || [];
             const totals = data.totals || { totalShares: 0, activeSessions: 0, completedSessions: 0 };
             
-            // Update stats cards
-            document.getElementById('logs-total-shares').innerText = totals.totalShares;
-            document.getElementById('logs-active-sessions').innerText = totals.activeSessions;
-            document.getElementById('logs-completed-sessions').innerText = totals.completedSessions;
+            // FIX: Ensure process count numbers are always visible and correctly updated
+            // Use detailed counters: total shares (aggregate), active (running) and completed sessions
+            const activeCount = sessions.filter(s => s.status === 'running').length;
+            const completedCount = sessions.filter(s => s.status === 'completed').length;
+            // Force correct display: totals.activeSessions might be outdated, recalc from sessions array
+            const finalActive = activeCount;
+            const finalCompleted = completedCount;
+            const finalTotalShares = totals.totalShares !== undefined ? totals.totalShares : sessions.reduce((sum, s) => sum + (s.sharedCount || 0), 0);
+            
+            document.getElementById('logs-total-shares').innerText = finalTotalShares;
+            document.getElementById('logs-active-sessions').innerText = finalActive;
+            document.getElementById('logs-completed-sessions').innerText = finalCompleted;
             
             const container = document.getElementById('sessionLogsList');
             if (sessions.length === 0) {
                 container.innerHTML = '<div style="padding: 30px; text-align:center;">✨ No active or completed sessions ✨</div>';
+                document.getElementById('globalWarningBanner').style.display = 'none';
                 return;
             }
             container.innerHTML = '';
+            let globalWarningActive = false;
+            let globalWarningMsg = '';
+            
+            // Process each session card
             for (const sess of sessions) {
                 const sessionCard = document.createElement('div');
                 sessionCard.className = 'session-card';
                 const statusClass = sess.status === 'running' ? 'status-running' : 'status-completed';
                 const statusText = sess.status === 'running' ? 'PROCESSING' : 'COMPLETED';
+                // Show shared count vs target clearly (process counter visibility fix)
+                const shareProgress = `${sess.sharedCount || 0}/${sess.targetAmount || 0}`;
                 sessionCard.innerHTML = `
                     <div class="session-header" data-sessionid="${sess.sessionId}">
                         <div>
                             <i class="fas fa-microchip"></i> 
-                            <span class="session-id">${sess.sessionId.substring(0, 16)}...</span>
-                            <div style="font-size:11px; color:#9a8acf; margin-top:4px;">${sess.url ? sess.url.substring(0, 55) : 'No URL'}</div>
+                            <span class="session-id">${sess.sessionId.substring(0, 18)}...</span>
+                            <div style="font-size:11px; color:#9a8acf; margin-top:4px; max-width:320px; word-break:break-word;">${sess.url ? sess.url.substring(0, 65) : 'No URL'}</div>
                         </div>
-                        <div style="display: flex; gap: 12px; align-items: center;">
-                            <span class="stat-badge"><i class="fas fa-share-alt"></i> ${sess.sharedCount || 0}/${sess.targetAmount || 0}</span>
+                        <div style="display: flex; gap: 12px; align-items: center; flex-wrap:wrap;">
+                            <span class="stat-badge process-counter-fixed"><i class="fas fa-share-alt"></i> ${shareProgress}</span>
                             <span class="session-status ${statusClass}"><i class="fas ${sess.status === 'running' ? 'fa-sync-alt fa-spin' : 'fa-check-circle'}"></i> ${statusText}</span>
                         </div>
                         <div><i class="fas fa-chevron-down" style="cursor:pointer; color:#aa99ff;"></i></div>
@@ -206,51 +366,129 @@
                 
                 const header = sessionCard.querySelector('.session-header');
                 const logDiv = sessionCard.querySelector('.log-details');
+                // lazy load on expand + check warning
+                let logsLoaded = false;
+                let warningForSession = null;
                 header.addEventListener('click', async (e) => {
                     e.stopPropagation();
                     const isOpen = logDiv.classList.contains('open');
                     if (!isOpen) {
                         logDiv.classList.add('open');
-                        if (logDiv.innerHTML.includes('Loading logs...')) {
-                            await loadSessionLogs(sess.sessionId, logDiv);
+                        if (!logsLoaded) {
+                            const warnObj = await loadSessionLogs(sess.sessionId, logDiv, sess);
+                            if (warnObj) warningForSession = warnObj;
+                            logsLoaded = true;
+                            if (warningForSession && !globalWarningActive) {
+                                globalWarningActive = true;
+                                globalWarningMsg = warningForSession.reason || "Share stopped - possible account lock/suspension";
+                                updateGlobalWarning(globalWarningMsg);
+                            }
                         }
                     } else {
                         logDiv.classList.remove('open');
                     }
                 });
+                
+                // Prefetch logs for warnings in background without opening? But we need check for global warning anyway.
+                // Pre-check for any session that has warning to trigger banner even if not expanded.
+                (async () => {
+                    try {
+                        const logRes = await fetch(`/api/session/${sess.sessionId}/logs`);
+                        const logData = await logRes.json();
+                        if (logData.success && logData.logs) {
+                            const warn = detectAccountWarningFromLogs(logData.logs);
+                            if (warn && sess.status === 'running') {
+                                globalWarningActive = true;
+                                globalWarningMsg = warn.reason || "Share process stopped due to potential lock";
+                                updateGlobalWarning(globalWarningMsg);
+                                // Also add visual marker on card header without opening logs
+                                const existingMarker = sessionCard.querySelector('.session-warning-note');
+                                if (!existingMarker) {
+                                    const statusSpan = sessionCard.querySelector('.session-status');
+                                    if (statusSpan && !statusSpan.classList.contains('status-warning')) {
+                                        statusSpan.classList.add('status-warning');
+                                        if (!statusSpan.innerHTML.includes('⚠️')) {
+                                            statusSpan.innerHTML = `⚠️ ${statusSpan.innerHTML}`;
+                                        }
+                                    }
+                                    const headerDiv = sessionCard.querySelector('.session-header');
+                                    const warnNote = document.createElement('div');
+                                    warnNote.className = 'session-warning-note';
+                                    warnNote.style.cssText = 'font-size:11px; background:#ff443322; border-radius:20px; padding:4px 10px; margin-top:6px; color:#ffb366;';
+                                    warnNote.innerHTML = `<i class="fas fa-lock"></i> ${warn.reason.substring(0, 70)}`;
+                                    headerDiv.appendChild(warnNote);
+                                }
+                            }
+                        }
+                    } catch(e) { /* silent */ }
+                })();
             }
-        } catch (err) { console.error(err); }
+            
+            // After processing all sessions, if global warning active, show banner
+            if (globalWarningActive) {
+                document.getElementById('globalWarningBanner').style.display = 'flex';
+                document.getElementById('warningMessageText').innerText = globalWarningMsg + " — Please check session logs for details.";
+            } else {
+                // double-check if any running session has hidden warning in older knownWarnings?
+                const anyRemainingWarning = Array.from(document.querySelectorAll('.session-warning-note')).length;
+                if (anyRemainingWarning === 0) document.getElementById('globalWarningBanner').style.display = 'none';
+                else document.getElementById('globalWarningBanner').style.display = 'flex';
+            }
+            
+        } catch (err) { console.error("Session fetch error:", err); }
     }
     
-    async function loadSessionLogs(sessionId, containerEl) {
-        try {
-            const res = await fetch(`/api/session/${sessionId}/logs`);
-            const data = await res.json();
-            if (data.success && data.logs) {
-                const logs = data.logs;
-                if (logs.length === 0) {
-                    containerEl.innerHTML = '<div style="padding: 12px;">📭 No detailed logs yet.</div>';
-                    return;
-                }
-                const logsHtml = logs.slice(-50).map(log => `
-                    <div class="log-entry">
-                        <span class="log-time">${new Date(log.timestamp).toLocaleTimeString()}</span>
-                        <span><strong>${log.action}</strong></span>
-                        <span style="color:#ba9eff;"> ${typeof log.data === 'object' ? JSON.stringify(log.data).substring(0, 100) : log.data}</span>
-                    </div>
-                `).join('');
-                containerEl.innerHTML = `<div style="max-height:250px; overflow-y:auto;">${logsHtml}</div>`;
-            } else {
-                containerEl.innerHTML = '<div>Failed to load logs</div>';
-            }
-        } catch (err) {
-            containerEl.innerHTML = '<div>Error fetching logs</div>';
+    function updateGlobalWarning(message) {
+        const banner = document.getElementById('globalWarningBanner');
+        const msgSpan = document.getElementById('warningMessageText');
+        if (banner && msgSpan) {
+            banner.style.display = 'flex';
+            msgSpan.innerText = message + " — The share process may have stopped. Verify account credentials immediately.";
         }
     }
     
-    fetchSessionsAndLogs();
+    // Additional live refresh with incremental warning monitor
+    async function enhancedMonitor() {
+        await fetchSessionsAndLogs();
+        // also check if any session log contains new warnings after refresh every 3.2 seconds
+        const warningElements = document.querySelectorAll('.session-warning-note');
+        if (warningElements.length > 0) {
+            document.getElementById('globalWarningBanner').style.display = 'flex';
+            if (!document.getElementById('warningMessageText').innerText.includes("attention")) {
+                document.getElementById('warningMessageText').innerText = "Account lock or suspension suspected in one or more sessions. Share activity might be blocked.";
+            }
+        } else {
+            // but if no warnings and no running sessions maybe hide
+            const runningSessionsCount = parseInt(document.getElementById('logs-active-sessions')?.innerText || '0');
+            if (runningSessionsCount === 0 && warningElements.length === 0) {
+                document.getElementById('globalWarningBanner').style.display = 'none';
+            }
+        }
+    }
+    
+    // make sure that process count remains visible after any dynamic changes (fix edge cases)
+    setInterval(() => {
+        const activeSpan = document.getElementById('logs-active-sessions');
+        const completedSpan = document.getElementById('logs-completed-sessions');
+        if (activeSpan && activeSpan.innerText.trim() === '') activeSpan.innerText = '0';
+        if (completedSpan && completedSpan.innerText.trim() === '') completedSpan.innerText = '0';
+        const sharesSpan = document.getElementById('logs-total-shares');
+        if (sharesSpan && sharesSpan.innerText === '') sharesSpan.innerText = '0';
+    }, 1000);
+    
+    // Initial load & interval
+    enhancedMonitor();
     if (activeRefresh) clearInterval(activeRefresh);
-    activeRefresh = setInterval(fetchSessionsAndLogs, 3200);
+    activeRefresh = setInterval(enhancedMonitor, 4200);
+    
+    // add fallback mutation observer to ensure process count never disappears
+    const observer = new MutationObserver(() => {
+        const activeEl = document.getElementById('logs-active-sessions');
+        const compEl = document.getElementById('logs-completed-sessions');
+        if (activeEl && activeEl.innerText === '') activeEl.innerText = '0';
+        if (compEl && compEl.innerText === '') compEl.innerText = '0';
+    });
+    observer.observe(document.getElementById('sessionsLogsContainer') || document.body, { childList: true, subtree: true });
 </script>
 </body>
 </html>
